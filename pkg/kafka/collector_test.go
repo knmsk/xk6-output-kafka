@@ -21,11 +21,13 @@
 package kafka
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"testing"
 
 	"github.com/Shopify/sarama"
+	"github.com/riferrei/srclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/guregu/null.v3"
@@ -62,17 +64,69 @@ func TestFormatSamples(t *testing.T) {
 		{Metric: metric, Value: 2, Tags: stats.IntoSampleTags(&map[string]string{"b": "2"})},
 	}
 
+	// Testing the influxdb format
 	c.Config.Format = null.NewString("influxdb", false)
-	fmtdSamples, err := c.formatSamples(samples)
+	fmtdSamples, err := c.formatSamples(samples, nil)
 
+	expInfluxdbs := []string{"my_metric,a=1 value=1.25", "my_metric,b=2 value=2"}
 	assert.Nil(t, err)
-	assert.Equal(t, []string{"my_metric,a=1 value=1.25", "my_metric,b=2 value=2"}, fmtdSamples)
+	assert.Equal(t, expInfluxdbs, fmtdSamples)
 
-	c.Config.Format = null.NewString("json", false)
-	fmtdSamples, err = c.formatSamples(samples)
+	// Testing the avro format
+	c.Config.Topic = null.NewString("topic1", false)
+	c.Config.Format = null.NewString("avro", false)
+	c.Config.SchemaRegistryConfig = SchemaRegistryConfig{
+		Url:              "mock://registryUrl",
+		TimeoutInSeconds: 0,
+		IsAvroAKey:       false,
+		Api: SchemaRegistryApiConfig{
+			Key:    "keytest",
+			Secret: "secrettest",
+		},
+	}
+	mockSchemaRegistryClient := srclient.CreateMockSchemaRegistryClient("mock://registryUrl")
+	mockSchema, _ := LoadAvroSchema("schema.avsc")
+	schema, _ := mockSchemaRegistryClient.CreateSchema("topic1", mockSchema, srclient.Avro, false)
 
+	schemaIDBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(schemaIDBytes, uint32(schema.ID()))
+	expNative1 := map[string]interface{}{
+		"type":   "Point",
+		"metric": "my_metric",
+		"data": map[string]interface{}{
+			"time":  "0001-01-01T00:00:00Z",
+			"value": float64(1.25),
+			"tags": map[string]interface{}{
+				"a": "1",
+			},
+		},
+	}
+	expNative2 := map[string]interface{}{
+		"type":   "Point",
+		"metric": "my_metric",
+		"data": map[string]interface{}{
+			"time":  "0001-01-01T00:00:00Z",
+			"value": float64(2),
+			"tags": map[string]interface{}{
+				"b": "2",
+			},
+		},
+	}
+	var expRecord []byte
+	expRecord = append(expRecord, byte(0))
+	expRecord = append(expRecord, schemaIDBytes...)
+
+	expBinary1, err := schema.Codec().BinaryFromNative(expRecord, expNative1)
+	expBinary2, err := schema.Codec().BinaryFromNative(expRecord, expNative2)
+	fmtdSamples, err = c.formatSamples(samples, schema)
+	assert.Nil(t, err)
+	assert.Equal(t, []string{string(expBinary1), string(expBinary2)}, fmtdSamples)
+
+	// Testing the json format
 	expJSON1 := "{\"type\":\"Point\",\"data\":{\"time\":\"0001-01-01T00:00:00Z\",\"value\":1.25,\"tags\":{\"a\":\"1\"}},\"metric\":\"my_metric\"}"
 	expJSON2 := "{\"type\":\"Point\",\"data\":{\"time\":\"0001-01-01T00:00:00Z\",\"value\":2,\"tags\":{\"b\":\"2\"}},\"metric\":\"my_metric\"}"
+	c.Config.Format = null.NewString("json", false)
+	fmtdSamples, err = c.formatSamples(samples, nil)
 
 	assert.Nil(t, err)
 	assert.Equal(t, []string{expJSON1, expJSON2}, fmtdSamples)

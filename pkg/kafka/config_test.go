@@ -67,6 +67,21 @@ func TestConfigParseArg(t *testing.T) {
 	assert.Equal(t, null.StringFrom("someTopic"), c.Topic)
 	assert.Equal(t, null.StringFrom("influxdb"), c.Format)
 	assert.Equal(t, expInfluxConfig, c.InfluxDBConfig)
+
+	c, err = ParseArg("brokers={broker2,broker3:9092},topic=someTopic2,format=avro,schema_registry.url=schemaRegistry:8081,schema_registry.timeoutInSeconds=5,schema_registry.api.key=keytest,schema_registry.api.secret=secrettest")
+	expSchemaRegistryConfig := SchemaRegistryConfig{
+		Url: "schemaRegistry:8081",
+		Api: SchemaRegistryApiConfig{
+			Key:    "keytest",
+			Secret: "secrettest",
+		},
+		TimeoutInSeconds: 5,
+	}
+	assert.Nil(t, err)
+	assert.Equal(t, []string{"broker2", "broker3:9092"}, c.Brokers)
+	assert.Equal(t, null.StringFrom("someTopic2"), c.Topic)
+	assert.Equal(t, null.StringFrom("avro"), c.Format)
+	assert.Equal(t, expSchemaRegistryConfig, c.SchemaRegistryConfig)
 }
 
 func TestConsolidatedConfig(t *testing.T) {

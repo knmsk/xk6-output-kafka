@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
+	"github.com/riferrei/srclient"
 	"github.com/sirupsen/logrus"
 
 	"go.k6.io/k6/output"
@@ -34,8 +35,9 @@ import (
 
 // Collector implements the lib.Collector interface and should be used only for testing
 type Collector struct {
-	Producer sarama.SyncProducer
-	Config   Config
+	Producer             sarama.SyncProducer
+	Config               Config
+	SchemaRegistryClient srclient.ISchemaRegistryClient
 
 	Samples []stats.Sample
 	done    chan struct{}
@@ -55,12 +57,14 @@ func New(p output.Params) (*Collector, error) {
 	if err != nil {
 		return nil, err
 	}
+	srclient := getSchemaRegistryClient(conf.SchemaRegistryConfig)
 
 	return &Collector{
-		Producer: producer,
-		Config:   conf,
-		logger:   p.Logger,
-		done:     make(chan struct{}),
+		Producer:             producer,
+		Config:               conf,
+		SchemaRegistryClient: srclient,
+		logger:               p.Logger,
+		done:                 make(chan struct{}),
 	}, nil
 }
 
@@ -111,10 +115,18 @@ func (c *Collector) AddMetricSamples(scs []stats.SampleContainer) {
 	c.lock.Unlock()
 }
 
-func (c *Collector) formatSamples(samples stats.Samples) ([]string, error) {
+func (c *Collector) formatSamples(samples stats.Samples, currentSchema *srclient.Schema) ([]string, error) {
 	var metrics []string
 
 	switch c.Config.Format.String {
+	case "avro":
+		for _, sample := range samples {
+			metric, err := formatAsAvro(c.Config, sample, currentSchema)
+			if err != nil {
+				return nil, err
+			}
+			metrics = append(metrics, string(metric))
+		}
 	case "influxdb":
 		var err error
 		fieldKinds, err := makeInfluxdbFieldKinds(c.Config.InfluxDBConfig.TagsAsFields)
@@ -147,8 +159,15 @@ func (c *Collector) pushMetrics() {
 	c.Samples = nil
 	c.lock.Unlock()
 
+	// Get avro schema if the format is avro
+	var currentSchema *srclient.Schema
+	format := c.Config.Format.String
+	if format == "avro" {
+		currentSchema = GetSchemaFromRegistryClient(c.Config, c.SchemaRegistryClient, c.logger)
+	}
+
 	// Format the samples
-	formattedSamples, err := c.formatSamples(samples)
+	formattedSamples, err := c.formatSamples(samples, currentSchema)
 	if err != nil {
 		c.logger.WithError(err).Error("Kafka: Couldn't format the samples")
 		return
@@ -158,7 +177,14 @@ func (c *Collector) pushMetrics() {
 	c.logger.Debug("Kafka: Delivering...")
 
 	for _, sample := range formattedSamples {
-		msg := &sarama.ProducerMessage{Topic: c.Config.Topic.String, Value: sarama.StringEncoder(sample)}
+		var value sarama.Encoder
+		switch format {
+		case "avro":
+			value = sarama.ByteEncoder([]byte(sample))
+		default:
+			value = sarama.StringEncoder(sample)
+		}
+		msg := &sarama.ProducerMessage{Topic: c.Config.Topic.String, Value: value}
 		partition, offset, err := c.Producer.SendMessage(msg)
 		if err != nil {
 			c.logger.WithError(err).Error("Kafka: failed to send message.")

@@ -38,11 +38,11 @@ type Config struct {
 	Brokers []string `json:"brokers" envconfig:"K6_KAFKA_BROKERS"`
 
 	// Samples.
-	Topic        null.String        `json:"topic" envconfig:"K6_KAFKA_TOPIC"`
-	Format       null.String        `json:"format" envconfig:"K6_KAFKA_FORMAT"`
-	PushInterval types.NullDuration `json:"push_interval" envconfig:"K6_KAFKA_PUSH_INTERVAL"`
-
-	InfluxDBConfig influxdbConfig `json:"influxdb"`
+	Topic                null.String          `json:"topic" envconfig:"K6_KAFKA_TOPIC"`
+	Format               null.String          `json:"format" envconfig:"K6_KAFKA_FORMAT"`
+	PushInterval         types.NullDuration   `json:"push_interval" envconfig:"K6_KAFKA_PUSH_INTERVAL"`
+	InfluxDBConfig       influxdbConfig       `json:"influxdb"`
+	SchemaRegistryConfig SchemaRegistryConfig `json:"schema_registry"`
 }
 
 // config is a duplicate of ConfigFields as we can not mapstructure.Decode into
@@ -53,15 +53,17 @@ type config struct {
 	Format       string   `json:"format" mapstructure:"format" envconfig:"K6_KAFKA_FORMAT"`
 	PushInterval string   `json:"push_interval" mapstructure:"push_interval" envconfig:"K6_KAFKA_PUSH_INTERVAL"`
 
-	InfluxDBConfig influxdbConfig `json:"influxdb" mapstructure:"influxdb"`
+	InfluxDBConfig       influxdbConfig       `json:"influxdb" mapstructure:"influxdb"`
+	SchemaRegistryConfig SchemaRegistryConfig `json:"schema_registry" mapstructure:"schema_registry"`
 }
 
 // NewConfig creates a new Config instance with default values for some fields.
 func NewConfig() Config {
 	return Config{
-		Format:         null.StringFrom("json"),
-		PushInterval:   types.NullDurationFrom(1 * time.Second),
-		InfluxDBConfig: newInfluxdbConfig(),
+		Format:               null.StringFrom("json"),
+		PushInterval:         types.NullDurationFrom(1 * time.Second),
+		InfluxDBConfig:       newInfluxdbConfig(),
+		SchemaRegistryConfig: newSchemaRegistryConfig(),
 	}
 }
 
@@ -79,6 +81,7 @@ func (c Config) Apply(cfg Config) Config {
 		c.PushInterval = cfg.PushInterval
 	}
 	c.InfluxDBConfig = c.InfluxDBConfig.Apply(cfg.InfluxDBConfig)
+	c.SchemaRegistryConfig = c.SchemaRegistryConfig.Apply(cfg.SchemaRegistryConfig)
 	return c
 }
 
@@ -103,6 +106,16 @@ func ParseArg(arg string) (Config, error) {
 	}
 
 	delete(params, "influxdb")
+
+	if v, ok := params["schema_registry"].(map[string]interface{}); ok {
+		schemaRegistry, err := schemaRegistryParseMap(v)
+		if err != nil {
+			return c, err
+		}
+		c.SchemaRegistryConfig = c.SchemaRegistryConfig.Apply(schemaRegistry)
+	}
+
+	delete(params, "schema_registry")
 
 	if v, ok := params["push_interval"].(string); ok {
 		err := c.PushInterval.UnmarshalText([]byte(v))

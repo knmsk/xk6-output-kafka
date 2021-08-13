@@ -1,0 +1,18 @@
+{ 
+  "type": "record",
+  "name": "Metrics",
+  "namespace": "k6.metrics.message.v1",
+  "fields": [
+    {"name": "type", "type": "string", "default": "Point"},
+    {"name": "metric", "type": "string"},
+    {"name": "data", "type": {
+      "type": "record", 
+      "name": "data", 
+      "fields": [
+        {"name": "time", "type": "string"},
+        {"name": "value", "type": "double"},
+        {"name": "tags", "type": { "type": "map", "values": "string"}}
+      ]
+    }}
+  ]
+}
