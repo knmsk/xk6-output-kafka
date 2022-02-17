@@ -24,6 +24,8 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"sync"
 	"time"
 
@@ -116,6 +118,8 @@ func (o *Output) Description() string {
 func (o *Output) Start() error {
 	// TODO get the period on the config
 	periodicFlusher, err := output.NewPeriodicFlusher(flushPeriod, o.flushMetrics)
+
+	go http.ListenAndServe("localhost:6060", nil)
 	if err != nil {
 		return err
 	}
