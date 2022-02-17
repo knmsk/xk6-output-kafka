@@ -2,8 +2,11 @@ module github.com/knmsk/xk6-output-kafka
 
 go 1.17
 
+replace github.com/grafana/xk6-output-kafka => github.com/knmsk/xk6-output-kafka v0.3.5
+
 require (
 	github.com/Shopify/sarama v1.31.1
+	github.com/grafana/xk6-output-kafka v0.0.0-00010101000000-000000000000
 	github.com/influxdata/influxdb1-client v0.0.0-20200827194710-b269163b24ab
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/kubernetes/helm v2.17.0+incompatible

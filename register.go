@@ -5,7 +5,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 
-	"github.com/knmsk/xk6-output-kafka/pkg/kafka"
+	"github.com/grafana/xk6-output-kafka/pkg/kafka"
 	"go.k6.io/k6/output"
 )
 
